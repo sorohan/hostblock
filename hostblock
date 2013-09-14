@@ -1,0 +1,97 @@
+#!/bin/bash
+
+HOSTFILE=/etc/hosts
+BLOCKFILE=~/.hostblock
+UNBLOCK=false
+WHO=`whoami`
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+VERBOSE=true
+
+function OUTPUT()
+{
+    if $VERBOSE ; then
+        echo $@
+    fi
+}
+
+function USAGE()
+{
+    echo "Bad usage."
+}
+
+function READ_OPTS()
+{
+    # read flags
+    while getopts ":u" OPTION; do
+        case $OPTION in
+            u)
+                UNBLOCK=true
+                ;;
+            ?)
+                USAGE
+                exit 1
+                ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+
+    # read args
+    BLOCKSITES=$1
+}
+
+function BLOCKSITE()
+{
+    site=$1
+    if $UNBLOCK ; then
+        OUTPUT "un blocking $1"
+        # remove if exists
+        sed -i -r "s/(^127\.0\.0\.1 $site www.$site hostblock$)/#HOSTUNBLOCK: \1/g" $HOSTFILE
+    else
+        OUTPUT "blocking $1"
+        # this could be written better...
+
+        # check if already blocked
+        grep -qE "^127\.0\.0\.1 $site www.$site hostblock$" $HOSTFILE
+        if [ $? = 0 ]; then
+            OUTPUT '    `- already blocked'
+        else
+            # check if unblocked
+            grep -qE "^#HOSTUNBLOCK: 127\.0\.0\.1 $site www.$site hostblock$" $HOSTFILE
+            if [ $? = 0 ]; then
+                # yes was blocked, unblock
+                sed -i -r "s/^#HOSTUNBLOCK: (127\.0\.0\.1 $site www.$site hostblock$)/\1/g" $HOSTFILE
+            else
+                # not blocked before, add it
+                echo "127.0.0.1 $site www.$site hostblock" >> $HOSTFILE
+            fi
+        fi
+    fi
+}
+
+#
+# Start script.
+#
+
+# Run as root.
+if [ "$WHO" != "root" ]; then
+    OUTPUT "Running as root"
+    sudo $DIR/hostblock $@
+    exit $?
+fi
+
+# Read cmd opts.
+READ_OPTS $@
+
+# Check for block sites.
+if [ -z "$BLOCKSITES" ]; then
+    if [ ! -f $BLOCKFILE ]; then
+        echo "$BLOCKFILE does not exist"
+        exit 1
+    fi
+    BLOCKSITES=`cat $BLOCKFILE`
+fi
+
+# Block each site.
+for site in $BLOCKSITES; do
+    BLOCKSITE $site
+done
